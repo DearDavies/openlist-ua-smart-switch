@@ -1,0 +1,40 @@
+# ===== Chrome extension / WebExtension =====
+# Chrome 官方 samples 里常见的临时目录/产物
+_debug
+_metadata
+dist
+
+# 打包/发布产物（按需保留）
+*.zip
+*.crx
+
+# ===== Node / 前端构建（如果你用了 npm/yarn/pnpm/webpack/vite 等）=====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+coverage/
+.nyc_output/
+.cache
+.parcel-cache
+.vite/
+
+# ===== 环境变量 / 密钥（强烈建议忽略）=====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ===== OS / 编辑器 =====
+*~
+*.DS_store
+.DS_Store
+**/*.swp
+.vscode/
+.idea/
+*.iml

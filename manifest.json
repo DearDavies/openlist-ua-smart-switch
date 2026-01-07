@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "OpenList UA 智能切换",
+  "version": "2.0",
+  "description": "自定义网址、关键词和 UA 的智能切换工具",
+  "permissions": [
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:5244/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "UA 切换配置"
+  },
+  "icons": {
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}
