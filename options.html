@@ -49,10 +49,6 @@
             box-sizing: border-box;
         }
 
-        select {
-            cursor: pointer;
-        }
-
         textarea {
             width: 100%;
             padding: 10px;
@@ -62,7 +58,12 @@
             font-family: 'Courier New', monospace;
             box-sizing: border-box;
             resize: vertical;
-            min-height: 100px;
+            min-height: 110px;
+        }
+
+        textarea:disabled {
+            background: #f3f3f3;
+            color: #666;
         }
 
         input[type="text"]:focus,
@@ -87,11 +88,11 @@
             background: #4CAF50;
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 10px 16px;
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
-            margin: 5px;
+            margin: 5px 5px 5px 0;
         }
 
         button:hover {
@@ -104,6 +105,14 @@
 
         button.delete:hover {
             background: #da190b;
+        }
+
+        button.secondary {
+            background: #607D8B;
+        }
+
+        button.secondary:hover {
+            background: #546E7A;
         }
 
         .actions {
@@ -160,15 +169,15 @@
             margin-top: 10px;
             font-size: 13px;
             color: #555;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
 
-        .custom-domains-section {
-            display: none;
-            margin-top: 10px;
-        }
-
-        .custom-domains-section.show {
-            display: block;
+        .inline-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 8px 0;
         }
     </style>
 </head>
@@ -177,15 +186,9 @@
     <h1>🔧 OpenList UA 智能切换配置</h1>
 
     <div class="example">
-        <strong>💡 使用说明：</strong><br>
-        1️⃣ <strong>选择网盘类型</strong>：目前预设了百度网盘，其他网盘请选择"自定义"<br>
-        2️⃣ <strong>填写 OpenList 地址</strong>：如 http://127.0.0.1:5244 或 http://192.168.1.100:5244<br>
-        3️⃣ <strong>填写路径关键词</strong>：你在 OpenList 中设置的挂载点名称，如「百度网盘」「度盘」<br>
-        4️⃣ <strong>设置 User-Agent</strong>：百度网盘会自动填入 pan.baidu.com，自定义类型需手动设置<br>
-        5️⃣ <strong>自定义类型</strong>：如需为其他网盘（115、夸克等）设置 UA，选择"自定义"并手动配置 CDN 域名<br><br>
-        <strong>⚠️ 关键理解：</strong>OpenList 使用 302 重定向，所以需要同时匹配：<br>
-        • OpenList 本地路径（用于判断是否在对应网盘目录下）<br>
-        • 网盘 CDN 域名（用于修改实际文件请求的 UA）
+        <strong>使用说明：</strong><br>
+        • OpenList 使用 302 时，需要同时匹配：OpenList 本地路径 + 百度 CDN 域名。<br>
+        • 现在“百度网盘”类型下也可以直接查看/修改 CDN 域名，并支持一键恢复预设。
     </div>
 
     <div id="rules-container"></div>

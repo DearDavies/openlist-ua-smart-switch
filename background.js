@@ -1,6 +1,6 @@
 // 网盘预设配置
 const CLOUD_PRESETS = {
-    'baidu': {
+    baidu: {
         name: '百度网盘',
         defaultUA: 'pan.baidu.com',
         domains: [
@@ -11,7 +11,7 @@ const CLOUD_PRESETS = {
             '*://pan.baidu.com/*'
         ]
     },
-    'custom': {
+    custom: {
         name: '自定义',
         defaultUA: '',
         domains: []
@@ -27,22 +27,74 @@ const defaultConfig = {
             baseUrl: 'http://127.0.0.1:5244',
             keyword: '百度网盘',
             userAgent: 'pan.baidu.com',
+            enabled: true,
+
+            // 自定义类型使用
             customDomains: [],
-            enabled: true
+
+            // 百度网盘预设下可覆盖的域名（新增）
+            overrideDomainsEnabled: false,
+            overrideDomains: []
         }
     ]
 };
 
+// --- 配置迁移：兼容你之前“覆盖升级文件”的情况 ---
+function migrateConfig(config) {
+    if (!config || !Array.isArray(config.rules)) return { config, changed: false };
+
+    let changed = false;
+    const newConfig = { ...config };
+
+    newConfig.rules = newConfig.rules.map((r) => {
+        const rule = { ...r };
+
+        if (!rule.cloudType) {
+            // 你目前只用百度网盘，所以旧配置默认迁移成 baidu
+            rule.cloudType = 'baidu';
+            changed = true;
+        }
+        if (!Array.isArray(rule.customDomains)) {
+            rule.customDomains = [];
+            changed = true;
+        }
+
+        // 新增字段补齐
+        if (typeof rule.overrideDomainsEnabled !== 'boolean') {
+            rule.overrideDomainsEnabled = false;
+            changed = true;
+        }
+        if (!Array.isArray(rule.overrideDomains)) {
+            rule.overrideDomains = [];
+            changed = true;
+        }
+
+        return rule;
+    });
+
+    return { config: newConfig, changed };
+}
+
 // 初始化
 chrome.runtime.onInstalled.addListener(async () => {
     console.log('=== OpenList UA 切换扩展已加载 ===');
-    const { config } = await chrome.storage.local.get('config');
+
+    const data = await chrome.storage.local.get('config');
+    let config = data.config;
+
     if (!config) {
-        await chrome.storage.local.set({ config: defaultConfig });
-        await updateRules(defaultConfig.rules);
+        config = defaultConfig;
+        await chrome.storage.local.set({ config });
     } else {
-        await updateRules(config.rules);
+        const r = migrateConfig(config);
+        config = r.config;
+        if (r.changed) {
+            await chrome.storage.local.set({ config });
+            console.log('✅ 已自动迁移旧配置');
+        }
     }
+
+    await updateRules(config.rules);
 });
 
 // 监听配置变化
@@ -68,40 +120,49 @@ async function updateRules(rules) {
             return;
         }
 
-        const encodedKeyword = encodeURIComponent(rule.keyword);
+        const encodedKeyword = encodeURIComponent(rule.keyword || '');
         const ruleId = (index + 1) * 100;
 
-        console.log(`规则 ${index + 1}: 类型=${rule.cloudType} 关键词="${rule.keyword}" UA="${rule.userAgent}"`);
+        console.log(
+            `规则 ${index + 1}: 类型=${rule.cloudType} keyword="${rule.keyword}" UA="${rule.userAgent}"`
+        );
 
-        // 规则1：匹配 OpenList 本地路径（用于页面访问）
-        newRules.push({
-            id: ruleId,
-            priority: 1,
-            action: {
-                type: 'modifyHeaders',
-                requestHeaders: [
-                    { header: 'user-agent', operation: 'set', value: rule.userAgent }
-                ]
-            },
-            condition: {
-                urlFilter: `${rule.baseUrl}/*${encodedKeyword}*`,
-                resourceTypes: ['main_frame', 'sub_frame']
-            }
-        });
-        console.log(`  ✓ 添加本地路径规则: ${rule.baseUrl}/*${encodedKeyword}*`);
-
-        // 获取该网盘类型的预设域名
-        const preset = CLOUD_PRESETS[rule.cloudType] || CLOUD_PRESETS['custom'];
-        const domainsToMatch = [...preset.domains];
-
-        // 如果是自定义类型，使用用户配置的域名
-        if (rule.cloudType === 'custom' && rule.customDomains && rule.customDomains.length > 0) {
-            domainsToMatch.push(...rule.customDomains);
+        // 规则1：匹配 OpenList 本地路径（用于“进入该网盘目录”时的页面请求）
+        if (rule.baseUrl && encodedKeyword) {
+            newRules.push({
+                id: ruleId,
+                priority: 1,
+                action: {
+                    type: 'modifyHeaders',
+                    requestHeaders: [
+                        { header: 'user-agent', operation: 'set', value: rule.userAgent }
+                    ]
+                },
+                condition: {
+                    urlFilter: `${rule.baseUrl}/*${encodedKeyword}*`,
+                    resourceTypes: ['main_frame', 'sub_frame']
+                }
+            });
         }
 
-        // 规则2-N：匹配网盘 CDN 域名（用于实际文件请求）
+        // 计算要匹配的 CDN 域名列表
+        const preset = CLOUD_PRESETS[rule.cloudType] || CLOUD_PRESETS.custom;
+        let domainsToMatch = [];
+
+        if (rule.cloudType === 'baidu') {
+            const overrideOn = rule.overrideDomainsEnabled === true;
+            const overrideList = Array.isArray(rule.overrideDomains) ? rule.overrideDomains : [];
+            domainsToMatch = (overrideOn && overrideList.length > 0) ? overrideList : preset.domains;
+        } else if (rule.cloudType === 'custom') {
+            domainsToMatch = Array.isArray(rule.customDomains) ? rule.customDomains : [];
+        } else {
+            domainsToMatch = preset.domains || [];
+        }
+
+        // 规则2-N：匹配网盘 CDN 域名（用于 302 后真实请求）
         domainsToMatch.forEach((domain, idx) => {
-            if (!domain || domain.trim() === '') return;
+            const d = (domain || '').trim();
+            if (!d) return;
 
             newRules.push({
                 id: ruleId + idx + 1,
@@ -114,11 +175,10 @@ async function updateRules(rules) {
                     ]
                 },
                 condition: {
-                    urlFilter: domain.trim(),
+                    urlFilter: d,
                     resourceTypes: ['xmlhttprequest', 'media', 'other']
                 }
             });
-            console.log(`  ✓ 添加 CDN 域名规则: ${domain.trim()}`);
         });
     });
 
@@ -127,18 +187,17 @@ async function updateRules(rules) {
             removeRuleIds: existingRuleIds,
             addRules: newRules
         });
-
         console.log(`✅ 成功应用 ${newRules.length} 条规则`);
     } catch (error) {
-        console.error('❌ 失败:', error);
+        console.error('❌ 更新规则失败:', error);
     }
 }
 
 // 根据网盘类型获取合适的 Referer
 function getReferer(cloudType) {
     const referers = {
-        'baidu': 'https://pan.baidu.com/',
-        'custom': ''
+        baidu: 'https://pan.baidu.com/',
+        custom: ''
     };
     return referers[cloudType] || '';
 }
