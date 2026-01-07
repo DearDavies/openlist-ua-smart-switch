@@ -47,7 +47,7 @@
 3. 如果你使用的是 OpenList 302 重定向播放：
    - 确保百度 CDN 域名匹配列表存在并正确（默认预设已包含常见域名）。
    - 如果百度 CDN 域名变动，可在“百度网盘”模式下勾选“允许自定义百度 CDN 域名”后直接修改，并保存生效。
-4. 保存后刷新 OpenList 页面，再尝试播放百度网盘视频。[conversation_history:1]
+4. 保存后刷新 OpenList 页面，再尝试播放百度网盘视频。
 
 ## 配置说明（关于“为什么要配 CDN 域名”）
 
@@ -58,7 +58,7 @@ OpenList 在 302 模式下，网页里点击播放时通常会先请求 OpenList
 
 - `manifest.json`：扩展声明、权限、入口配置。
 - `background.js`：MV3 Service Worker，读取配置并生成/更新 DNR 动态规则。
-- `options.html` / `options.js`：配置页面 UI 与交互逻辑（保存到 `chrome.storage.local`）。[][web:79]
+- `options.html` / `options.js`：配置页面 UI 与交互逻辑（保存到 `chrome.storage.local`）。
 - `popup.html` / `popup.js`：扩展弹窗入口（打开配置页）。
 - `icon.png`：扩展图标。
 
@@ -67,4 +67,5 @@ OpenList 在 302 模式下，网页里点击播放时通常会先请求 OpenList
 本扩展通过修改请求头来改善兼容性与可用性，请仅在你拥有访问权限的网盘内容与合法使用场景下使用。
 
 ## License
+
 GPL-3.0. See LICENSE.
