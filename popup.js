@@ -1,4 +1,4 @@
-// popup.js
+// 弹窗脚本：点击按钮后打开扩展设置页。
 console.log('Popup script loaded');
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -12,11 +12,11 @@ document.addEventListener('DOMContentLoaded', function () {
         button.addEventListener('click', function () {
             console.log('Button clicked!');
 
-            // 方法1：使用 openOptionsPage
+            // 方法1：使用 openOptionsPage（推荐，Chrome 会处理打开逻辑）
             if (chrome.runtime.openOptionsPage) {
                 chrome.runtime.openOptionsPage();
             } else {
-                // 方法2：如果方法1不支持，手动打开
+                // 方法2：如果方法1不支持，手动打开 options.html
                 window.open(chrome.runtime.getURL('options.html'));
             }
         });

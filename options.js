@@ -1,3 +1,4 @@
+// 配置页脚本：渲染规则列表、编辑规则并保存到 storage。
 // 网盘预设配置
 const CLOUD_PRESETS = {
     baidu: {
@@ -18,9 +19,10 @@ const CLOUD_PRESETS = {
     }
 };
 
+// 当前内存配置（页面渲染和编辑都基于它）。
 let config = { rules: [] };
 
-// 加载配置
+// 加载配置：从 storage 读取并补齐旧字段。
 async function loadConfig() {
     const data = await chrome.storage.local.get('config');
     config = data.config || { rules: [] };
@@ -41,7 +43,7 @@ async function loadConfig() {
     renderRules();
 }
 
-// 渲染规则列表
+// 渲染规则列表：根据当前 config 生成 DOM。
 function renderRules() {
     const container = document.getElementById('rules-container');
     container.innerHTML = '';
@@ -61,6 +63,7 @@ function renderRules() {
         const ruleDiv = document.createElement('div');
         ruleDiv.className = `rule-item ${rule.enabled ? '' : 'disabled'}`;
 
+        // 注意：用户输入内容统一经过 escapeHtml，避免破坏页面结构。
         ruleDiv.innerHTML = `
       <div class="rule-header">
         <h3 class="rule-title">规则 ${index + 1}</h3>
@@ -120,10 +123,11 @@ function renderRules() {
         container.appendChild(ruleDiv);
     });
 
+    // 每次重新渲染后都需要重新绑定事件。
     bindEvents();
 }
 
-// 绑定事件
+// 绑定事件：把 UI 操作同步回 config。
 function bindEvents() {
     // 网盘类型切换
     document.querySelectorAll('.cloud-type').forEach(select => {
@@ -140,11 +144,12 @@ function bindEvents() {
                 }
             }
 
+            // 切换类型会影响表单布局，需重新渲染。
             renderRules();
         });
     });
 
-    // 删除
+    // 删除：移除当前规则并重绘。
     document.querySelectorAll('.delete').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const index = parseInt(e.target.dataset.index, 10);
@@ -153,7 +158,7 @@ function bindEvents() {
         });
     });
 
-    // baseUrl / keyword / UA
+    // baseUrl / keyword / UA：实时写回 config。
     document.querySelectorAll('.base-url').forEach(input => {
         input.addEventListener('input', (e) => {
             const index = parseInt(e.target.dataset.index, 10);
@@ -173,7 +178,7 @@ function bindEvents() {
         });
     });
 
-    // 自定义类型：域名
+    // 自定义类型：域名（多行转数组）。
     document.querySelectorAll('.custom-domains').forEach(textarea => {
         textarea.addEventListener('input', (e) => {
             const index = parseInt(e.target.dataset.index, 10);
@@ -181,7 +186,7 @@ function bindEvents() {
         });
     });
 
-    // 百度类型：是否启用覆盖
+    // 百度类型：是否启用覆盖域名
     document.querySelectorAll('.override-enabled').forEach(cb => {
         cb.addEventListener('change', (e) => {
             const index = parseInt(e.target.dataset.index, 10);
@@ -190,7 +195,7 @@ function bindEvents() {
         });
     });
 
-    // 百度类型：覆盖域名编辑
+    // 百度类型：覆盖域名编辑（多行转数组）
     document.querySelectorAll('.override-domains').forEach(textarea => {
         textarea.addEventListener('input', (e) => {
             const index = parseInt(e.target.dataset.index, 10);
@@ -198,7 +203,7 @@ function bindEvents() {
         });
     });
 
-    // 百度类型：把预设填入编辑框
+    // 百度类型：把预设填入编辑框并自动启用覆盖
     document.querySelectorAll('.fill-preset').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const index = parseInt(e.target.dataset.index, 10);
@@ -218,7 +223,7 @@ function bindEvents() {
         });
     });
 
-    // 启用/禁用
+    // 启用/禁用：切换后重绘样式（灰显）。
     document.querySelectorAll('.enabled').forEach(checkbox => {
         checkbox.addEventListener('change', (e) => {
             const index = parseInt(e.target.dataset.index, 10);
@@ -228,7 +233,7 @@ function bindEvents() {
     });
 }
 
-// 添加新规则
+// 添加新规则：ID 取当前最大值 + 1。
 document.getElementById('add-rule').addEventListener('click', () => {
     const newId = config.rules.length > 0 ? Math.max(...config.rules.map(r => r.id || 0)) + 1 : 1;
     config.rules.push({
@@ -245,13 +250,13 @@ document.getElementById('add-rule').addEventListener('click', () => {
     renderRules();
 });
 
-// 保存配置
+// 保存配置：写入 storage 并提示用户。
 document.getElementById('save').addEventListener('click', async () => {
     await chrome.storage.local.set({ config });
     showStatus('✅ 配置已保存！规则将立即生效');
 });
 
-// 恢复默认
+// 恢复默认：确认后覆盖当前配置。
 document.getElementById('reset').addEventListener('click', async () => {
     if (confirm('确定要恢复默认配置吗？当前配置将被清空！')) {
         config = {
@@ -275,7 +280,7 @@ document.getElementById('reset').addEventListener('click', async () => {
     }
 });
 
-// 显示状态提示
+// 显示状态提示：短暂浮层提示。
 function showStatus(message) {
     const status = document.getElementById('status');
     status.textContent = message;
@@ -301,5 +306,5 @@ function escapeHtml(s) {
         .replaceAll("'", '&#39;');
 }
 
-// 初始化
+// 初始化：读取配置并渲染页面。
 loadConfig();

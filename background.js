@@ -1,3 +1,5 @@
+// 后台服务（service worker）：负责把配置转换为 DNR 动态规则。
+// 规则用途：在访问 OpenList 路径或网盘 CDN 时，自动切换 UA/Referer。
 // 网盘预设配置
 const CLOUD_PRESETS = {
     baidu: {
@@ -18,7 +20,7 @@ const CLOUD_PRESETS = {
     }
 };
 
-// 默认配置
+// 默认配置：扩展首次安装时写入 storage。
 const defaultConfig = {
     rules: [
         {
@@ -39,6 +41,7 @@ const defaultConfig = {
     ]
 };
 
+// 配置迁移：把旧配置补齐为新结构，避免旧字段缺失导致报错。
 // --- 配置迁移：兼容你之前“覆盖升级文件”的情况 ---
 function migrateConfig(config) {
     if (!config || !Array.isArray(config.rules)) return { config, changed: false };
@@ -46,6 +49,7 @@ function migrateConfig(config) {
     let changed = false;
     const newConfig = { ...config };
 
+    // 逐条规则修复字段，保持配置向后兼容。
     newConfig.rules = newConfig.rules.map((r) => {
         const rule = { ...r };
 
@@ -83,6 +87,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     let config = data.config;
 
     if (!config) {
+        // 首次安装：写入默认配置
         config = defaultConfig;
         await chrome.storage.local.set({ config });
     } else {
@@ -94,10 +99,11 @@ chrome.runtime.onInstalled.addListener(async () => {
         }
     }
 
+    // 根据当前配置生成动态规则
     await updateRules(config.rules);
 });
 
-// 监听配置变化
+// 监听配置变化：Options 页面保存后立即生效。
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
     if (namespace === 'local' && changes.config) {
         console.log('=== 配置已更新 ===');
@@ -105,10 +111,14 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
     }
 });
 
-// 更新动态规则
+// 更新动态规则：删除旧规则并按当前配置重建。
+// 规则组成：
+// - 规则 1：匹配 OpenList 本地路径（用于“进入目录”的页面请求）
+// - 规则 2..N：匹配 CDN 域名（用于 302 后真实资源请求）
 async function updateRules(rules) {
     console.log('=== 开始更新规则 ===');
 
+    // 先读出已有动态规则，后面统一删除。
     const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
     const existingRuleIds = existingRules.map(rule => rule.id);
 
@@ -120,7 +130,9 @@ async function updateRules(rules) {
             return;
         }
 
+        // URL 中的关键词需要编码，避免中文路径匹配失败。
         const encodedKeyword = encodeURIComponent(rule.keyword || '');
+        // 给每条规则分配一个 ID 段，避免子规则 ID 冲突。
         const ruleId = (index + 1) * 100;
 
         console.log(
@@ -145,7 +157,9 @@ async function updateRules(rules) {
             });
         }
 
-        // 计算要匹配的 CDN 域名列表
+        // 计算要匹配的 CDN 域名列表：
+        // - 百度：允许用“覆盖域名”替代预设
+        // - 自定义：直接使用自定义域名
         const preset = CLOUD_PRESETS[rule.cloudType] || CLOUD_PRESETS.custom;
         let domainsToMatch = [];
 
@@ -183,6 +197,7 @@ async function updateRules(rules) {
     });
 
     try {
+        // 先删后加，避免残留旧规则。
         await chrome.declarativeNetRequest.updateDynamicRules({
             removeRuleIds: existingRuleIds,
             addRules: newRules
@@ -193,7 +208,7 @@ async function updateRules(rules) {
     }
 }
 
-// 根据网盘类型获取合适的 Referer
+// 根据网盘类型获取合适的 Referer（部分 CDN 会校验 Referer）。
 function getReferer(cloudType) {
     const referers = {
         baidu: 'https://pan.baidu.com/',
