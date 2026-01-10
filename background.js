@@ -1,4 +1,4 @@
-// 后台服务（service worker）：负责把配置转换为 DNR 动态规则。
+﻿// 后台服务（service worker）：负责把配置转换为 DNR 动态规则。
 // 规则用途：在访问 OpenList 路径或网盘 CDN 时，自动切换 UA/Referer。
 // 网盘预设配置
 const CLOUD_PRESETS = {
@@ -44,10 +44,15 @@ const defaultConfig = {
 // 配置迁移：把旧配置补齐为新结构，避免旧字段缺失导致报错。
 // --- 配置迁移：兼容你之前“覆盖升级文件”的情况 ---
 function migrateConfig(config) {
-    if (!config || !Array.isArray(config.rules)) return { config, changed: false };
+    if (!config || typeof config !== 'object') return { config, changed: false };
 
     let changed = false;
     const newConfig = { ...config };
+
+    if (!Array.isArray(newConfig.rules)) {
+        newConfig.rules = [];
+        changed = true;
+    }
 
     // 逐条规则修复字段，保持配置向后兼容。
     newConfig.rules = newConfig.rules.map((r) => {
@@ -79,6 +84,31 @@ function migrateConfig(config) {
     return { config: newConfig, changed };
 }
 
+function normalizeRulesInput(rules) {
+    if (!Array.isArray(rules)) return [];
+    return rules.filter(rule => rule && typeof rule === 'object');
+}
+
+function normalizeHeaderValue(value) {
+    if (typeof value !== 'string') return '';
+    return value.trim();
+}
+
+function isSafeUrlFilter(value) {
+    return typeof value === 'string' && value.trim() !== '' && !/\s/.test(value);
+}
+
+function buildRequestHeaders(userAgent, referer) {
+    const headers = [];
+    if (userAgent) {
+        headers.push({ header: 'user-agent', operation: 'set', value: userAgent });
+    }
+    if (referer) {
+        headers.push({ header: 'referer', operation: 'set', value: referer });
+    }
+    return headers;
+}
+
 // 初始化
 chrome.runtime.onInstalled.addListener(async () => {
     console.log('=== OpenList UA 切换扩展已加载 ===');
@@ -107,7 +137,9 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
     if (namespace === 'local' && changes.config) {
         console.log('=== 配置已更新 ===');
-        await updateRules(changes.config.newValue.rules);
+        const nextConfig = changes.config.newValue;
+        const nextRules = nextConfig && typeof nextConfig === 'object' ? nextConfig.rules : [];
+        await updateRules(nextRules);
     }
 });
 
@@ -116,87 +148,93 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
 // - 规则 1：匹配 OpenList 本地路径（用于“进入目录”的页面请求）
 // - 规则 2..N：匹配 CDN 域名（用于 302 后真实资源请求）
 async function updateRules(rules) {
-    console.log('=== 开始更新规则 ===');
+    try {
+        console.log('=== 开始更新规则 ===');
 
-    // 先读出已有动态规则，后面统一删除。
-    const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
-    const existingRuleIds = existingRules.map(rule => rule.id);
+        const safeRules = normalizeRulesInput(rules);
 
-    const newRules = [];
+        // 先读出已有动态规则，后面统一删除。
+        const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+        const existingRuleIds = existingRules.map(rule => rule.id);
 
-    rules.forEach((rule, index) => {
-        if (!rule.enabled) {
-            console.log(`规则 ${index + 1} 未启用，跳过`);
-            return;
-        }
+        const newRules = [];
 
-        // URL 中的关键词需要编码，避免中文路径匹配失败。
-        const encodedKeyword = encodeURIComponent(rule.keyword || '');
-        // 给每条规则分配一个 ID 段，避免子规则 ID 冲突。
-        const ruleId = (index + 1) * 100;
+        safeRules.forEach((rule, index) => {
+            const enabled = (typeof rule.enabled === 'boolean') ? rule.enabled : true;
+            if (!enabled) {
+                console.log(`规则 ${index + 1} 未启用，跳过`);
+                return;
+            }
 
-        console.log(
-            `规则 ${index + 1}: 类型=${rule.cloudType} keyword="${rule.keyword}" UA="${rule.userAgent}"`
-        );
+            const userAgent = normalizeHeaderValue(rule.userAgent);
+            if (!userAgent) {
+                console.warn(`规则 ${index + 1} UA 为空，跳过`);
+                return;
+            }
 
-        // 规则1：匹配 OpenList 本地路径（用于“进入该网盘目录”时的页面请求）
-        if (rule.baseUrl && encodedKeyword) {
-            newRules.push({
-                id: ruleId,
-                priority: 1,
-                action: {
-                    type: 'modifyHeaders',
-                    requestHeaders: [
-                        { header: 'user-agent', operation: 'set', value: rule.userAgent }
-                    ]
-                },
-                condition: {
-                    urlFilter: `${rule.baseUrl}/*${encodedKeyword}*`,
-                    resourceTypes: ['main_frame', 'sub_frame']
-                }
-            });
-        }
+            // URL 中的关键词需要编码，避免中文路径匹配失败。
+            const keyword = typeof rule.keyword === 'string' ? rule.keyword : '';
+            const encodedKeyword = encodeURIComponent(keyword);
+            const baseUrl = typeof rule.baseUrl === 'string' ? rule.baseUrl.trim() : '';
+            const refererValue = normalizeHeaderValue(getReferer(rule.cloudType));
+            const ruleId = (index + 1) * 100;
 
-        // 计算要匹配的 CDN 域名列表：
-        // - 百度：允许用“覆盖域名”替代预设
-        // - 自定义：直接使用自定义域名
-        const preset = CLOUD_PRESETS[rule.cloudType] || CLOUD_PRESETS.custom;
-        let domainsToMatch = [];
+            console.log(
+                `规则 ${index + 1}: 类型=${rule.cloudType} keyword="${keyword}" UA="${userAgent}"`
+            );
 
-        if (rule.cloudType === 'baidu') {
-            const overrideOn = rule.overrideDomainsEnabled === true;
-            const overrideList = Array.isArray(rule.overrideDomains) ? rule.overrideDomains : [];
-            domainsToMatch = (overrideOn && overrideList.length > 0) ? overrideList : preset.domains;
-        } else if (rule.cloudType === 'custom') {
-            domainsToMatch = Array.isArray(rule.customDomains) ? rule.customDomains : [];
-        } else {
-            domainsToMatch = preset.domains || [];
-        }
+            // 规则1：匹配 OpenList 本地路径（用于“进入该网盘目录”时的页面请求）
+            if (isSafeUrlFilter(baseUrl) && encodedKeyword) {
+                newRules.push({
+                    id: ruleId,
+                    priority: 1,
+                    action: {
+                        type: 'modifyHeaders',
+                        requestHeaders: buildRequestHeaders(userAgent)
+                    },
+                    condition: {
+                        urlFilter: `${baseUrl}/*${encodedKeyword}*`,
+                        resourceTypes: ['main_frame', 'sub_frame']
+                    }
+                });
+            }
 
-        // 规则2-N：匹配网盘 CDN 域名（用于 302 后真实请求）
-        domainsToMatch.forEach((domain, idx) => {
-            const d = (domain || '').trim();
-            if (!d) return;
+            // 计算要匹配的 CDN 域名列表：
+            // - 百度：允许用“覆盖域名”替代预设
+            // - 自定义：直接使用自定义域名
+            const preset = CLOUD_PRESETS[rule.cloudType] || CLOUD_PRESETS.custom;
+            let domainsToMatch = [];
 
-            newRules.push({
-                id: ruleId + idx + 1,
-                priority: 1,
-                action: {
-                    type: 'modifyHeaders',
-                    requestHeaders: [
-                        { header: 'user-agent', operation: 'set', value: rule.userAgent },
-                        { header: 'referer', operation: 'set', value: getReferer(rule.cloudType) }
-                    ]
-                },
-                condition: {
-                    urlFilter: d,
-                    resourceTypes: ['xmlhttprequest', 'media', 'other']
-                }
+            if (rule.cloudType === 'baidu') {
+                const overrideOn = rule.overrideDomainsEnabled === true;
+                const overrideList = Array.isArray(rule.overrideDomains) ? rule.overrideDomains : [];
+                domainsToMatch = (overrideOn && overrideList.length > 0) ? overrideList : preset.domains;
+            } else if (rule.cloudType === 'custom') {
+                domainsToMatch = Array.isArray(rule.customDomains) ? rule.customDomains : [];
+            } else {
+                domainsToMatch = preset.domains || [];
+            }
+
+            // 规则2-N：匹配网盘 CDN 域名（用于 302 后真实请求）
+            domainsToMatch.forEach((domain, idx) => {
+                const d = (domain || '').trim();
+                if (!isSafeUrlFilter(d)) return;
+
+                newRules.push({
+                    id: ruleId + idx + 1,
+                    priority: 1,
+                    action: {
+                        type: 'modifyHeaders',
+                        requestHeaders: buildRequestHeaders(userAgent, refererValue)
+                    },
+                    condition: {
+                        urlFilter: d,
+                        resourceTypes: ['xmlhttprequest', 'media', 'other']
+                    }
+                });
             });
         });
-    });
 
-    try {
         // 先删后加，避免残留旧规则。
         await chrome.declarativeNetRequest.updateDynamicRules({
             removeRuleIds: existingRuleIds,
